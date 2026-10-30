@@ -67,7 +67,7 @@ footer a{color:inherit}
     </div>
 
     <fieldset>
-      <legend>What kind of job is it?</legend>
+      <legend>What kind of job is it? <span class="hint" id="type-hint">Pick all that apply.</span></legend>
       <div class="chips" id="types">
         <button type="button" class="chip" data-type="Sign" aria-pressed="false">Sign</button>
         <button type="button" class="chip" data-type="Railings" aria-pressed="false">Railings</button>
@@ -76,7 +76,7 @@ footer a{color:inherit}
         <button type="button" class="chip" data-type="CAD design" aria-pressed="false">CAD design</button>
         <button type="button" class="chip" data-type="Other" aria-pressed="false">Other</button>
       </div>
-      <p class="err" id="err-type" hidden>Pick the kind of job.</p>
+      <p class="err" id="err-type" hidden>Pick at least one kind of job.</p>
     </fieldset>
 
     <div class="row">
@@ -136,7 +136,7 @@ footer a{color:inherit}
 const ENDPOINT = "https://script.google.com/macros/s/AKfycbxnBzVw_ukK0ES5Jo5CPy--B57wOzmqM0xIXX5tzIjW57I3YEzEoGGNEWJ6Kpao8ZY57A/exec"; /* Apps Script web app URL, filled in after Justin deploys it */
 const MAX_BYTES = 20 * 1024 * 1024, MAX_FILES = 10;
 const $ = id => document.getElementById(id);
-const state = { mode: "full", type: "", times: [], files: [] };
+const state = { mode: "full", types: [], times: [], files: [] };
 const params = new URLSearchParams(location.search);
 const TYPES = { sign: "Sign", railings: "Railings", scan: "3D scan", print: "3D printing", cad: "CAD design", other: "Other" };
 
@@ -147,14 +147,18 @@ function setMode(m) {
   $("title").textContent = m === "short" ? "Send us a message" : "Start a project";
   $("desc-label").textContent = m === "short" ? "Your message" : "Describe what you need";
   $("files-label").textContent = m === "short" ? "A photo (optional)" : "Photos, logos, PDFs or drawings";
+  $("type-hint").textContent = m === "short" ? "Optional. Pick any that apply." : "Pick all that apply.";
+  if (m === "short") $("err-type").hidden = true;
 }
-function setType(t) {
-  state.type = t;
-  document.querySelectorAll("#types .chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.type === t)));
+function setTypes(list) {
+  const order = Object.values(TYPES);
+  state.types = order.filter(t => list.includes(t));
+  document.querySelectorAll("#types .chip").forEach(b => b.setAttribute("aria-pressed", String(state.types.includes(b.dataset.type))));
   $("err-type").hidden = true;
 }
+function toggleType(t) { setTypes(state.types.includes(t) ? state.types.filter(x => x !== t) : state.types.concat(t)); }
 document.querySelectorAll(".mode button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
-document.querySelectorAll("#types .chip").forEach(b => b.addEventListener("click", () => setType(b.dataset.type)));
+document.querySelectorAll("#types .chip").forEach(b => b.addEventListener("click", () => toggleType(b.dataset.type)));
 document.querySelectorAll("#times .chip").forEach(b => b.addEventListener("click", () => {
   const on = b.getAttribute("aria-pressed") !== "true";
   b.setAttribute("aria-pressed", String(on));
@@ -187,7 +191,7 @@ const toB64 = f => new Promise((ok, no) => { const r = new FileReader(); r.onloa
 $("form").addEventListener("submit", async e => {
   e.preventDefault();
   let bad = false;
-  if (!state.type) { showErr("err-type"); bad = true; }
+  if (state.mode === "full" && !state.types.length) { showErr("err-type"); bad = true; }
   if (!$("name").value.trim()) { $("name").focus(); bad = true; }
   if (!$("email").value.trim() && !$("phone").value.trim()) { showErr("err-contact"); bad = true; }
   if (!$("description").value.trim()) { showErr("err-desc"); bad = true; }
@@ -197,7 +201,7 @@ $("form").addEventListener("submit", async e => {
   try {
     const files = await Promise.all(state.files.map(async f => ({ name: f.name, type: f.type, data: await toB64(f) })));
     const body = {
-      mode: state.mode, jobType: state.type, name: $("name").value, company: $("company").value,
+      mode: state.mode, jobTypes: state.types, jobType: state.types[0] || "Other", name: $("name").value, company: $("company").value,
       email: $("email").value, phone: $("phone").value, description: $("description").value,
       bestTimes: state.times, needBy: $("needBy").value, website: $("website").value,
       shop: params.get("shop") || "", job: params.get("job") || "", files
@@ -215,8 +219,8 @@ $("form").addEventListener("submit", async e => {
   }
 });
 
-/* Links in: ?type=sign|railings|scan|print|cad|other, ?mode=short, ?shop=Steamboat%20Precision&job=Alta%20Mesa */
-if (TYPES[params.get("type")]) setType(TYPES[params.get("type")]);
+/* Links in: ?type=sign|railings|scan|print|cad|other (or a list: ?type=scan,print), ?mode=short, ?shop=Steamboat%20Precision&job=Alta%20Mesa */
+setTypes((params.get("type") || "").split(",").map(k => TYPES[k.trim().toLowerCase()]).filter(Boolean));
 setMode(params.get("mode") === "short" ? "short" : "full");
 if (params.get("shop")) {
   $("shopbar").textContent = params.get("shop") + " asked you to share details" + (params.get("job") ? " for " + params.get("job") : "") + ".";
